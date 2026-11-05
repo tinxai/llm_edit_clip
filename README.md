@@ -1,7 +1,7 @@
 # LLM-edited CLIP
 
 Can an LLM edit CLIP's weights directly (no gradients) to fix a weakness? Experiments with CLIP ViT-B/32, Claude and Codex agents, and a small editor UI.
-Inspired by [Weight-Space Programming](https://rikiyat.github.io/blog/weight-space-programming/). **Blog / write-up: `docs/index.html`** (enable GitHub Pages on `/docs` to serve it).
+Inspired by [Weight-Space Programming](https://rikiyat.github.io/blog/weight-space-programming/). **Blog / write-up: `docs/index.html`** (served at https://tinxai.github.io/llm_edit_clip/).
 
 ## Summary
 - Generic ImageNet accuracy: no real gain (all edits within noise on the 50k val images).

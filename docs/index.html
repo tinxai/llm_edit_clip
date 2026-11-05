@@ -5,7 +5,7 @@
 @media (prefers-color-scheme:dark){:root{--bg:#16171a;--ink:#e8e8ea;--ink2:#b5b8bd;--mut:#4a4d54;--line:#33353b;--acc:#7aa2ff;--card:#1f2024;--loss:#ef8a55}}
 body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 Georgia,'Times New Roman',serif}
 main{max-width:760px;margin:0 auto;padding:40px 18px 80px}
-h1{font:700 34px/1.2 system-ui,sans-serif;margin:0 0 8px}h2{font:700 22px/1.3 system-ui,sans-serif;margin:44px 0 8px}
+h1{font:700 34px/1.2 system-ui,sans-serif;margin:0 0 8px}h2{font:700 22px/1.3 system-ui,sans-serif;margin:44px 0 8px}h3{font:700 17px/1.3 system-ui,sans-serif;margin:28px 0 6px}
 .sub{font:18px system-ui,sans-serif;color:var(--ink2);margin:0 0 14px}.links a{display:inline-block;font:600 14px system-ui,sans-serif;padding:6px 14px;margin:0 6px 6px 0;border:1px solid var(--ink);border-radius:20px;color:var(--ink);text-decoration:none}.links a:hover{background:var(--ink);color:var(--bg)}
 .tldr{background:var(--card);border-left:4px solid var(--acc);padding:10px 16px;margin:20px 0;font-family:system-ui,sans-serif;font-size:16px}
 hr{border:0;border-top:1px solid var(--line);margin:36px 0}a{color:var(--acc)}
@@ -222,6 +222,37 @@ layers[8].self_attn.out_proj.weight[:, 256:320]  = 0   # layer 8,  head 4</pre>
 </svg><figcaption>Change in attacked accuracy when a single head is switched off. Full blue is +14.3 points (L11 head 8). Last layer at the top.</figcaption></figure>
 <p>Projecting that head's output onto the class names shows it pushes the answer toward the word written on the image more strongly than any other head. This is a rough, direct-effect estimate and should be read as a hint, not proof.</p>
 <hr>
+<h2>Quantitative results on held-out images</h2>
+<p>The numbers below use 4,000 attacked images and their 4,000 clean twins from the training set. These images were never used to choose the heads, so they are a fair test of the edit. (They are not the validation images used in the tables above, so the exact figures differ slightly: original 26.8% attacked and 65.1% clean, edited 42.7% and 65.3%.)</p>
+<h3>What the edit changes, image by image</h3>
+<table><tr><th></th><th>Fixed</th><th>Broken</th><th>Right both times</th><th>Wrong both times</th></tr>
+<tr><td>Attacked images</td><td>716 (17.9%)</td><td>81 (2.0%)</td><td>990 (24.8%)</td><td>2,213 (55.3%)</td></tr>
+<tr><td>Clean images</td><td>91 (2.3%)</td><td>85 (2.1%)</td><td>2,519 (63.0%)</td><td>1,305 (32.6%)</td></tr></table>
+<p>"Fixed" means wrong before the edit and right after. On attacked images the edit fixes about nine times as many images as it breaks. On clean images it fixes and breaks almost the same number, so overall clean accuracy barely moves. The share of attacked images where the model simply answers <b>the word written on the picture</b> falls from 1,832 (45.8%) to 661 (16.5%).</p>
+<h3>How many heads should we switch off?</h3>
+<figure><img src="img/fig_heads_off.png" alt="Accuracy against number of heads switched off"><figcaption>Heads are switched off in the order of their single-head effect on a separate search set. One head already lifts attacked accuracy from 26.8% to 40.4% with no clean loss.</figcaption></figure>
+<table><tr><th>Heads off</th><th>0</th><th>1</th><th>2</th><th>4</th><th>8</th><th>12</th></tr><tr><td>Attacked acc.</td><td>26.8</td><td>40.4</td><td>43.9</td><td>46.3</td><td>49.2</td><td>47.4</td></tr><tr><td>Clean acc.</td><td>65.1</td><td>65.1</td><td>64.7</td><td>63.3</td><td>61.3</td><td>57.4</td></tr></table>
+<p>Switching off more heads keeps helping until about eight heads (49.2% attacked), but clean accuracy keeps falling (61.3%), and past eight both get worse. So two heads is a trade-off, not an optimum. Also note that the pair our agent found (L11 head 8 and L8 head 4) is not the best pair by this ranking: the top two heads by single-head effect (L11 heads 8 and 11) give 43.9% attacked and 64.7% clean on this split, against 42.7% and 65.3% for the agent's pair.</p>
+<h3>Turning the heads down instead of off</h3>
+<figure><img src="img/fig_strength.png" alt="Accuracy against how much of the two heads is kept"><figcaption>Attacked accuracy rises steadily as the two heads are turned down, while clean accuracy stays flat.</figcaption></figure>
+<p>The effect is smooth. Each tenth of the two heads removed buys about 1.5 points of attacked accuracy, and clean accuracy stays between 65.1% and 65.6% the whole way. There is no cliff, so the edit can be dialled to taste.</p>
+<h3>Do the heads look at the text?</h3>
+<table><tr><th>Head</th><th>Attention on the text box, attacked</th><th>Same spot, clean image</th><th>Box share of image</th><th>Other heads, same layer</th></tr>
+<tr><td>L11 head 8</td><td>37.6%</td><td>4.7%</td><td>22.5%</td><td>34.0%</td></tr>
+<tr><td>L8 head 4</td><td>6.5%</td><td>11.1%</td><td>22.5%</td><td>16.2%</td></tr></table>
+<p class="note">Share of the CLS token's attention that lands on the 32-pixel patches overlapping the written text, averaged over 500 attacked images. "Other heads" is the average of the other 11 heads in the same layer.</p>
+<p>L11 head 8 sends 37.6% of its attention to the text, compared with 4.7% when the text is absent, so it does react to the text. But the other heads in that layer look there too (34%), so attention alone does not single this head out. What singles it out is its effect on the answer. <b>L8 head 4 does not look at the text at all</b>: it puts less attention there (6.5%) than the box's share of the image (22.5%). We do not know how it helps, and we would not call it a "text reader".</p>
+<hr>
+<h2>Qualitative results</h2>
+<h3>Twelve random attacked images</h3>
+<figure><img src="img/fig_examples.png" alt="Twelve random attacked images with predictions before and after the edit"><figcaption>Random sample (fixed seed, not chosen by outcome). Green = right after the edit, red = wrong. Each caption shows the model's top answer and its probability before and after switching off the two heads.</figcaption></figure>
+<p>The sample is a mixed bag, which is the honest picture. Of the twelve, one is fixed (the tow truck, which the original model called a garbage truck) and one gets worse (an acorn that the original model got right at 96% becomes a "horse chestnut seed" at 41%). Five were right before and stay right (lizard, church, crutch, saxophone, squash). Five stay wrong: for the poodle and the sturgeon the written word no longer wins but another wrong answer does, the backpack and the gloves are wrong for reasons unrelated to the text, and on the basketball photo the written word "tabby cat" falls from 91% to 31% but is still the top answer.</p>
+<h3>Where the heads look</h3>
+<figure><img src="img/fig_attention.png" alt="Attention maps of two heads on attacked images"><figcaption>Where the two heads send the CLS token's attention (bright = more) on four attacked images.</figcaption></figure>
+<p>L11 head 8 visibly lights up on or next to the written word in all four images. L8 head 4 spreads its attention over corners and background and ignores the text, which matches the table above.</p>
+<h3>Turning the heads down</h3>
+<figure><img src="img/sweep.gif" alt="Animation of the model's answer as the two heads are turned down"><figcaption>One attacked image (chosen from the images the edit fixes, so it shows the best case). As the two heads are turned down from 1.0 to 0, the probability of the written word drops and the true class takes over.</figcaption></figure>
+<hr>
 <h2>Try 3: really write new values</h2>
 <p>Switching things off is a weak form of "programming". So we ran four more agents under a rule that forced them to write <i>new</i> numbers:</p>
 <table><tr><th>Edit</th><th>Clean acc.</th><th>Attacked acc.</th></tr><tr><td>New neuron pathway (detector + correction, 196,736 new numbers, no zeros)</td><td>62.77</td><td>41.08</td></tr><tr><td>Heads off + average output written into a bias</td><td>62.65</td><td>41.60</td></tr><tr><td>Rewrite where the heads look</td><td>62.53</td><td>40.74</td></tr><tr><td>Rewrite head output with a computed matrix</td><td>62.54</td><td>40.18</td></tr><tr class="hl"><td>(For reference) two heads switched off</td><td>62.76</td><td>42.41</td></tr></table>
@@ -244,6 +275,7 @@ layers[8].self_attn.out_proj.weight[:, 256:320]  = 0   # layer 8,  head 4</pre>
 export IMAGENET_VAL=... IMAGENET_TRAIN=...
 python cache_feats.py && python build_typo.py        # caches and attacked train splits
 PYTHONPATH=. python eval_typo.py heads               # grade an agent's submission
+python figures.py                                    # the figures and numbers on this page
 python ui/precompute.py &amp;&amp; PORT=8791 python ui/server.py   # the editor UI</pre>
 <p class="note">Layout inspired by the Dyslexify project page. Experiments were run with Claude and Codex agents; the write-up was drafted with Claude.</p>
 </main></body></html>
