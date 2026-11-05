@@ -10,14 +10,14 @@ Inspired by [Weight-Space Programming](https://rikiyat.github.io/blog/weight-spa
 - This is a known type of fix, see [Dyslexify](https://hufe.info/dyslexify/) (Hufe et al., ICLR 2026). We have not compared against their method.
 
 ## Layout
-| Path | What |
-|---|---|
-| `harness.py`, `zs_meta.py`, `wsp.py`, `cache_feats.py` | CLIP eval, class names + 80 templates, cached features |
-| `typo.py`, `build_typo.py`, `typo_api.py`, `eval_typo.py` | attack renderer, attacked train splits, the budgeted API agents used, grader |
-| `typo/brief*.md`, `typo/results*.json` | agent briefs (round 1, round 2 "write new values") and graded results |
-| `try1/`, `codex_panel/` | generic-accuracy experiments and the Codex panel |
-| `ui/` | editor app: `precompute.py` (per-head switch-off scan, readouts, attention), `server.py` (live scoring + Claude chat), `index.html` |
-| `docs/` | the blog page |
+
+- `harness.py`, `zs_meta.py`, `wsp.py`, `cache_feats.py`: CLIP eval, class names and 80 templates, cached features
+- `typo.py`, `build_typo.py`, `typo_api.py`, `eval_typo.py`: attack renderer, attacked train splits, the budgeted API the agents used, and the grader
+- `typo/brief.md`, `typo/brief2.md`, `typo/results.json`, `typo/results2.json`: agent briefs (round 1, round 2 "write new values") and graded results
+- `try1/`, `codex_panel/`: generic-accuracy experiments and the Codex panel
+- `ui/`: editor app. `precompute.py` (per-head switch-off scan, readouts, attention), `server.py` (live scoring and Claude chat), `index.html`
+- `docs/`: the blog page
+- `edits/zero_two_heads.py`: the winning two-head edit
 
 ## Setup
 Needs a GPU, `torch`, `torchvision`, `transformers`, `pillow`, and ImageNet on disk. Data and caches are not in the repo.
