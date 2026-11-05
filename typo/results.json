@@ -1,0 +1,43 @@
+{
+ "original": {
+  "TB_clean": 65.10000000000001,
+  "TB_attacked": 26.775,
+  "tensors": [],
+  "val_clean": 63.339999999999996,
+  "val_attacked": 26.93
+ },
+ "heads": {
+  "TB_clean": 65.25,
+  "TB_attacked": 42.65,
+  "tensors": [
+   "vision_model.encoder.layers.8.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.11.self_attn.out_proj.weight"
+  ],
+  "val_clean": 62.76199999999999,
+  "val_attacked": 42.41
+ },
+ "mlp": {
+  "TB_clean": 64.55,
+  "TB_attacked": 34.35,
+  "tensors": [
+   "vision_model.encoder.layers.5.mlp.fc2.weight",
+   "vision_model.encoder.layers.6.mlp.fc2.weight",
+   "vision_model.encoder.layers.7.mlp.fc2.weight",
+   "vision_model.encoder.layers.8.mlp.fc2.weight",
+   "vision_model.encoder.layers.9.mlp.fc2.weight",
+   "vision_model.encoder.layers.10.mlp.fc2.weight",
+   "vision_model.encoder.layers.11.mlp.fc2.weight"
+  ],
+  "val_clean": 62.782000000000004,
+  "val_attacked": 34.32
+ },
+ "free": {
+  "TB_clean": 65.05,
+  "TB_attacked": 40.400000000000006,
+  "tensors": [
+   "vision_model.encoder.layers.11.self_attn.out_proj.weight"
+  ],
+  "val_clean": 62.928,
+  "val_attacked": 40.04
+ }
+}

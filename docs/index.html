@@ -1,0 +1,249 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LLM-Edited CLIP</title><meta name="description" content="Claude agents edit CLIP's weights directly, with no training, to resist typographic attacks.">
+<style>
+:root{--bg:#fff;--ink:#1f2328;--ink2:#555b63;--mut:#b9bec6;--line:#e3e1db;--acc:#2a5bd7;--card:#f7f6f2;--loss:#d9632b}
+@media (prefers-color-scheme:dark){:root{--bg:#16171a;--ink:#e8e8ea;--ink2:#b5b8bd;--mut:#4a4d54;--line:#33353b;--acc:#7aa2ff;--card:#1f2024;--loss:#ef8a55}}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.65 Georgia,'Times New Roman',serif}
+main{max-width:760px;margin:0 auto;padding:40px 18px 80px}
+h1{font:700 34px/1.2 system-ui,sans-serif;margin:0 0 8px}h2{font:700 22px/1.3 system-ui,sans-serif;margin:44px 0 8px}
+.sub{font:18px system-ui,sans-serif;color:var(--ink2);margin:0 0 14px}.links a{display:inline-block;font:600 14px system-ui,sans-serif;padding:6px 14px;margin:0 6px 6px 0;border:1px solid var(--ink);border-radius:20px;color:var(--ink);text-decoration:none}.links a:hover{background:var(--ink);color:var(--bg)}
+.tldr{background:var(--card);border-left:4px solid var(--acc);padding:10px 16px;margin:20px 0;font-family:system-ui,sans-serif;font-size:16px}
+hr{border:0;border-top:1px solid var(--line);margin:36px 0}a{color:var(--acc)}
+figure{margin:20px 0;text-align:center}figure img{max-width:100%;border-radius:6px}figcaption{font:italic 14px/1.5 system-ui,sans-serif;color:var(--ink2);margin-top:6px}
+.pair{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.pair img{width:100%}
+table{border-collapse:collapse;width:100%;font:15px system-ui,sans-serif;margin:14px 0}th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line)}th:first-child,td:first-child{text-align:left}th{color:var(--ink2);font-weight:600}tr.hl td{font-weight:700}
+pre{background:var(--card);padding:12px 14px;border-radius:6px;overflow:auto;font:13.5px/1.5 ui-monospace,monospace}code{font-family:ui-monospace,monospace;font-size:.9em}
+.b{display:flex;align-items:center;gap:10px;font:14px system-ui,sans-serif;margin:4px 0}.bl{width:150px}.bt{flex:1;height:14px;background:var(--card);border-radius:3px;overflow:hidden}.bt i{display:block;height:100%}.b b{width:56px;text-align:right}
+.note{font:14px/1.5 system-ui,sans-serif;color:var(--ink2)}
+</style></head><body><main>
+<h1>LLM-Edited CLIP</h1>
+<p class="sub">Claude agents rewrite CLIP's weights by hand, with no training, to resist typographic attacks</p>
+<p class="links"><a href="https://github.com/tinxai/llm_edit_clip">Code</a><a href="https://hufe.info/dyslexify/">Related: Dyslexify</a><a href="https://rikiyat.github.io/blog/weight-space-programming/">Inspiration: Weight-Space Programming</a></p>
+<div class="tldr"><b>TL;DR</b> We asked LLM agents to edit the weights of CLIP ViT-B/32 directly (no gradients, a small budget of test runs). On normal ImageNet they found <b>nothing</b>. When we pointed them at one specific weakness, words written on pictures, they found a two-head edit that lifts accuracy on attacked images from <b>26.9% to 42.4%</b> at a cost of about 0.6 points on clean images. This is a known kind of fix; we reproduce it and add an editor UI.</div>
+<hr>
+<h2>Abstract</h2>
+<p>The <a href="https://rikiyat.github.io/blog/weight-space-programming/">Weight-Space Programming</a> idea is that a language model can read and write a network's weights itself, the way a programmer edits code. We tested it on CLIP ViT-B/32. Our <b>first test</b>, trying to raise zero-shot ImageNet accuracy, gave no real gain: every apparent improvement found on the search images vanished on the 50,000 validation images. Our <b>second test</b> picked a concrete failure, typographic attacks, and gave Claude agents a budget of 40 scored test runs. The best agent switched off two attention heads and recovered about 40% of the accuracy lost to the attack. Agents forced to <i>write new values</i> instead of switching things off reached similar results (about 40 to 41.6%) but did not beat plain switching-off. Finally we built a small UI that shows what each part of the model does so a person, or an LLM, can decide what to edit.</p>
+<hr>
+<h2>What is a typographic attack?</h2>
+<p>CLIP learned to read. If you write the word "bustard" on a photo of a tench, CLIP is likely to answer "bustard". We use the simplest version: a wrong class name in a white box with black bold text at a random place.</p>
+<figure><div class="pair"><img src="img/tench_clean.png" alt=""><img src="img/tench_attacked.png" alt=""><img src="img/bulbul_clean.png" alt=""><img src="img/bulbul_attacked.png" alt=""></div><figcaption>Clean and attacked versions of two ImageNet validation-style images. On our attacked set the original model drops from 63.3% to 26.9%.</figcaption></figure>
+<hr>
+<h2>Setup</h2>
+<ul><li><b>Model:</b> CLIP ViT-B/32 (<code>openai/clip-vit-base-patch32</code>). Only the image tower is edited. The class names (80 prompt templates) stay frozen.</li>
+<li><b>Allowed edits:</b> change weight values directly: switch off or scale a part, write a bias, add a new neuron pathway. No gradient training.</li>
+<li><b>Budget:</b> editors got a limited number of scored forward passes on <i>train</i> images, split into a search half and a held-out half. A change was only kept if it helped on both.</li>
+<li><b>Final report:</b> the ImageNet validation set, touched only at the end. For attacks, the 50,000 clean validation images and 10,000 attacked ones.</li></ul>
+<hr>
+<h2>Try 1: raise plain ImageNet accuracy</h2>
+<p>We tried six approaches: a greedy search over projection edits, a screen of edits inside transformer blocks, and four Codex agents (<code>gpt-6-astra</code>) editing heads, MLPs, norms or anything. Original accuracy is 63.34%.</p>
+<table><tr><th>Approach</th><th>Val accuracy</th></tr><tr><td>Greedy projection edits</td><td>63.34</td></tr><tr><td>Edits inside blocks</td><td>63.45</td></tr><tr><td>Codex: heads</td><td>63.28</td></tr><tr><td>Codex: MLP</td><td>63.31</td></tr><tr><td>Codex: norms</td><td>63.49</td></tr><tr><td>Codex: free</td><td>63.34</td></tr></table>
+<p>Every number is within about ±0.15 of the original, which is inside the noise. Gains on the search images were fitting noise. We do <b>not</b> conclude that the method can never help CLIP, only that a generic "make it better" request found nothing here.</p>
+<hr>
+<h2>Try 2: fix one specific weakness</h2>
+<p>We gave four Claude agents the attack and the same kind of budget, each with a different focus. Results on validation images:</p>
+<table><tr><th>Editor</th><th>Clean acc.</th><th>Attacked acc.</th></tr><tr><td>Original model</td><td>63.34</td><td>26.93</td></tr><tr class="hl"><td>Claude: heads</td><td>62.76</td><td>42.41</td></tr><tr><td>Claude: free-form</td><td>62.93</td><td>40.04</td></tr><tr><td>Claude: MLP</td><td>62.78</td><td>34.32</td></tr><tr><td>Claude: norms</td><td colspan="2">no edit passed the held-out check</td></tr></table>
+<figure style="text-align:left"><div class="b"><span class="bl">Original</span><span class="bt"><i style="width:26.93%;background:var(--mut)"></i></span><b>26.9%</b></div><div class="b"><span class="bl">Claude: MLP</span><span class="bt"><i style="width:34.32%;background:var(--mut)"></i></span><b>34.3%</b></div><div class="b"><span class="bl">Claude: free-form</span><span class="bt"><i style="width:40.04%;background:var(--mut)"></i></span><b>40.0%</b></div><div class="b"><span class="bl">Claude: heads</span><span class="bt"><i style="width:42.41%;background:var(--acc)"></i></span><b>42.4%</b></div><figcaption>Accuracy on 10,000 attacked validation images.</figcaption></figure>
+<p>The winning edit is two lines:</p>
+<pre>layers[11].self_attn.out_proj.weight[:, 512:576] = 0   # layer 11, head 8
+layers[8].self_attn.out_proj.weight[:, 256:320]  = 0   # layer 8,  head 4</pre>
+<p>That recovers 15.5 points, about 40% of the roughly 37-point gap between clean and attacked accuracy, and it generalised from the search images to the held-out split and to validation.</p>
+<hr>
+<h2>Where the fix lives</h2>
+<p>Switching off each of the 144 heads in turn (on 1,000 search images) shows that one head dominates: layer 11, head 8. Blue is a head whose removal helps attacked accuracy, orange hurts.</p>
+<figure><svg viewBox="0 0 352 346" role="img" aria-label="Heat map of switch-off gain per attention head" style="max-width:420px;width:100%">
+<text x="43.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">0</text>
+<text x="69.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">1</text>
+<text x="95.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">2</text>
+<text x="121.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">3</text>
+<text x="147.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">4</text>
+<text x="173.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">5</text>
+<text x="199.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">6</text>
+<text x="225.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">7</text>
+<text x="251.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">8</text>
+<text x="277.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">9</text>
+<text x="303.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">10</text>
+<text x="329.0" y="12" text-anchor="middle" font-size="10" fill="currentColor" opacity=".6">11</text>
+<text x="24" y="37.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L11</text>
+<rect x="30" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.24" stroke="currentColor" stroke-opacity=".15"><title>L11 head 0: +3.5 points when switched off</title></rect>
+<rect x="56" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.27" stroke="currentColor" stroke-opacity=".15"><title>L11 head 1: +3.8 points when switched off</title></rect>
+<rect x="82" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L11 head 2: +1.1 points when switched off</title></rect>
+<rect x="108" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L11 head 3: +1.1 points when switched off</title></rect>
+<rect x="134" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L11 head 4: +0.6 points when switched off</title></rect>
+<rect x="160" y="20" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L11 head 5: -1.0 points when switched off</title></rect>
+<rect x="186" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L11 head 6: +0.7 points when switched off</title></rect>
+<rect x="212" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.13" stroke="currentColor" stroke-opacity=".15"><title>L11 head 7: +1.9 points when switched off</title></rect>
+<rect x="238" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="1.00" stroke="currentColor" stroke-opacity=".15"><title>L11 head 8: +14.3 points when switched off</title></rect>
+<rect x="264" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L11 head 9: +0.3 points when switched off</title></rect>
+<rect x="290" y="20" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.20" stroke="currentColor" stroke-opacity=".15"><title>L11 head 10: -2.8 points when switched off</title></rect>
+<rect x="316" y="20" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.35" stroke="currentColor" stroke-opacity=".15"><title>L11 head 11: +5.0 points when switched off</title></rect>
+<text x="24" y="63.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L10</text>
+<rect x="30" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L10 head 0: +0.2 points when switched off</title></rect>
+<rect x="56" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.12" stroke="currentColor" stroke-opacity=".15"><title>L10 head 1: +1.7 points when switched off</title></rect>
+<rect x="82" y="46" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L10 head 2: -1.4 points when switched off</title></rect>
+<rect x="108" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.11" stroke="currentColor" stroke-opacity=".15"><title>L10 head 3: +1.6 points when switched off</title></rect>
+<rect x="134" y="46" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.09" stroke="currentColor" stroke-opacity=".15"><title>L10 head 4: -1.3 points when switched off</title></rect>
+<rect x="160" y="46" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L10 head 5: -1.1 points when switched off</title></rect>
+<rect x="186" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.25" stroke="currentColor" stroke-opacity=".15"><title>L10 head 6: +3.6 points when switched off</title></rect>
+<rect x="212" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L10 head 7: +0.8 points when switched off</title></rect>
+<rect x="238" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L10 head 8: +0.1 points when switched off</title></rect>
+<rect x="264" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L10 head 9: +0.2 points when switched off</title></rect>
+<rect x="290" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L10 head 10: +0.5 points when switched off</title></rect>
+<rect x="316" y="46" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L10 head 11: +1.0 points when switched off</title></rect>
+<text x="24" y="89.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L9</text>
+<rect x="30" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L9 head 0: +0.0 points when switched off</title></rect>
+<rect x="56" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L9 head 1: -1.0 points when switched off</title></rect>
+<rect x="82" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L9 head 2: +0.1 points when switched off</title></rect>
+<rect x="108" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L9 head 3: -1.1 points when switched off</title></rect>
+<rect x="134" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L9 head 4: -1.2 points when switched off</title></rect>
+<rect x="160" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L9 head 5: +1.4 points when switched off</title></rect>
+<rect x="186" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.18" stroke="currentColor" stroke-opacity=".15"><title>L9 head 6: -2.6 points when switched off</title></rect>
+<rect x="212" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L9 head 7: +0.4 points when switched off</title></rect>
+<rect x="238" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.11" stroke="currentColor" stroke-opacity=".15"><title>L9 head 8: +1.6 points when switched off</title></rect>
+<rect x="264" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.09" stroke="currentColor" stroke-opacity=".15"><title>L9 head 9: -1.3 points when switched off</title></rect>
+<rect x="290" y="72" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L9 head 10: -1.4 points when switched off</title></rect>
+<rect x="316" y="72" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.12" stroke="currentColor" stroke-opacity=".15"><title>L9 head 11: +1.7 points when switched off</title></rect>
+<text x="24" y="115.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L8</text>
+<rect x="30" y="98" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L8 head 0: -1.0 points when switched off</title></rect>
+<rect x="56" y="98" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L8 head 1: -0.5 points when switched off</title></rect>
+<rect x="82" y="98" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L8 head 2: -0.1 points when switched off</title></rect>
+<rect x="108" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L8 head 3: +0.2 points when switched off</title></rect>
+<rect x="134" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.20" stroke="currentColor" stroke-opacity=".15"><title>L8 head 4: +2.9 points when switched off</title></rect>
+<rect x="160" y="98" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L8 head 5: -0.2 points when switched off</title></rect>
+<rect x="186" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.22" stroke="currentColor" stroke-opacity=".15"><title>L8 head 6: +3.2 points when switched off</title></rect>
+<rect x="212" y="98" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L8 head 7: -0.5 points when switched off</title></rect>
+<rect x="238" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L8 head 8: +0.0 points when switched off</title></rect>
+<rect x="264" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L8 head 9: +0.0 points when switched off</title></rect>
+<rect x="290" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.24" stroke="currentColor" stroke-opacity=".15"><title>L8 head 10: +3.4 points when switched off</title></rect>
+<rect x="316" y="98" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L8 head 11: +0.1 points when switched off</title></rect>
+<text x="24" y="141.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L7</text>
+<rect x="30" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L7 head 0: -0.3 points when switched off</title></rect>
+<rect x="56" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L7 head 1: -0.7 points when switched off</title></rect>
+<rect x="82" y="124" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L7 head 2: +0.4 points when switched off</title></rect>
+<rect x="108" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L7 head 3: -1.5 points when switched off</title></rect>
+<rect x="134" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L7 head 4: -0.9 points when switched off</title></rect>
+<rect x="160" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L7 head 5: -0.2 points when switched off</title></rect>
+<rect x="186" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L7 head 6: -1.0 points when switched off</title></rect>
+<rect x="212" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L7 head 7: -1.4 points when switched off</title></rect>
+<rect x="238" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L7 head 8: -1.5 points when switched off</title></rect>
+<rect x="264" y="124" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L7 head 9: -0.4 points when switched off</title></rect>
+<rect x="290" y="124" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L7 head 10: +1.1 points when switched off</title></rect>
+<rect x="316" y="124" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.22" stroke="currentColor" stroke-opacity=".15"><title>L7 head 11: +3.1 points when switched off</title></rect>
+<text x="24" y="167.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L6</text>
+<rect x="30" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L6 head 0: +0.0 points when switched off</title></rect>
+<rect x="56" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L6 head 1: +0.7 points when switched off</title></rect>
+<rect x="82" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L6 head 2: -1.1 points when switched off</title></rect>
+<rect x="108" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.10" stroke="currentColor" stroke-opacity=".15"><title>L6 head 3: -1.5 points when switched off</title></rect>
+<rect x="134" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L6 head 4: -0.1 points when switched off</title></rect>
+<rect x="160" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L6 head 5: -0.6 points when switched off</title></rect>
+<rect x="186" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L6 head 6: +0.7 points when switched off</title></rect>
+<rect x="212" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L6 head 7: -0.3 points when switched off</title></rect>
+<rect x="238" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.08" stroke="currentColor" stroke-opacity=".15"><title>L6 head 8: +1.2 points when switched off</title></rect>
+<rect x="264" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L6 head 9: +0.5 points when switched off</title></rect>
+<rect x="290" y="150" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L6 head 10: -0.1 points when switched off</title></rect>
+<rect x="316" y="150" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L6 head 11: +0.1 points when switched off</title></rect>
+<text x="24" y="193.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L5</text>
+<rect x="30" y="176" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L5 head 0: +0.5 points when switched off</title></rect>
+<rect x="56" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L5 head 1: -0.8 points when switched off</title></rect>
+<rect x="82" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L5 head 2: -0.5 points when switched off</title></rect>
+<rect x="108" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L5 head 3: -0.3 points when switched off</title></rect>
+<rect x="134" y="176" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L5 head 4: +0.0 points when switched off</title></rect>
+<rect x="160" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L5 head 5: -0.9 points when switched off</title></rect>
+<rect x="186" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L5 head 6: -0.4 points when switched off</title></rect>
+<rect x="212" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L5 head 7: -0.1 points when switched off</title></rect>
+<rect x="238" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L5 head 8: -0.8 points when switched off</title></rect>
+<rect x="264" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L5 head 9: -0.6 points when switched off</title></rect>
+<rect x="290" y="176" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L5 head 10: +0.1 points when switched off</title></rect>
+<rect x="316" y="176" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.07" stroke="currentColor" stroke-opacity=".15"><title>L5 head 11: -1.0 points when switched off</title></rect>
+<text x="24" y="219.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L4</text>
+<rect x="30" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L4 head 0: +0.1 points when switched off</title></rect>
+<rect x="56" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L4 head 1: -0.2 points when switched off</title></rect>
+<rect x="82" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L4 head 2: +0.6 points when switched off</title></rect>
+<rect x="108" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L4 head 3: -0.9 points when switched off</title></rect>
+<rect x="134" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L4 head 4: +0.4 points when switched off</title></rect>
+<rect x="160" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L4 head 5: +0.1 points when switched off</title></rect>
+<rect x="186" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L4 head 6: -0.3 points when switched off</title></rect>
+<rect x="212" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L4 head 7: -0.4 points when switched off</title></rect>
+<rect x="238" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L4 head 8: +0.0 points when switched off</title></rect>
+<rect x="264" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L4 head 9: -0.4 points when switched off</title></rect>
+<rect x="290" y="202" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L4 head 10: -0.8 points when switched off</title></rect>
+<rect x="316" y="202" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L4 head 11: +0.1 points when switched off</title></rect>
+<text x="24" y="245.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L3</text>
+<rect x="30" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.14" stroke="currentColor" stroke-opacity=".15"><title>L3 head 0: -2.0 points when switched off</title></rect>
+<rect x="56" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L3 head 1: -0.2 points when switched off</title></rect>
+<rect x="82" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L3 head 2: +0.5 points when switched off</title></rect>
+<rect x="108" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L3 head 3: +0.1 points when switched off</title></rect>
+<rect x="134" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L3 head 4: +0.5 points when switched off</title></rect>
+<rect x="160" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L3 head 5: +0.9 points when switched off</title></rect>
+<rect x="186" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L3 head 6: +0.3 points when switched off</title></rect>
+<rect x="212" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L3 head 7: -0.6 points when switched off</title></rect>
+<rect x="238" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L3 head 8: -0.1 points when switched off</title></rect>
+<rect x="264" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L3 head 9: -0.5 points when switched off</title></rect>
+<rect x="290" y="228" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L3 head 10: +0.2 points when switched off</title></rect>
+<rect x="316" y="228" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L3 head 11: -0.6 points when switched off</title></rect>
+<text x="24" y="271.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L2</text>
+<rect x="30" y="254" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 0: -0.2 points when switched off</title></rect>
+<rect x="56" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 1: +0.2 points when switched off</title></rect>
+<rect x="82" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 2: +0.2 points when switched off</title></rect>
+<rect x="108" y="254" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L2 head 3: -0.6 points when switched off</title></rect>
+<rect x="134" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 4: +0.2 points when switched off</title></rect>
+<rect x="160" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L2 head 5: +0.3 points when switched off</title></rect>
+<rect x="186" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 6: +0.1 points when switched off</title></rect>
+<rect x="212" y="254" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 7: -0.2 points when switched off</title></rect>
+<rect x="238" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L2 head 8: +0.0 points when switched off</title></rect>
+<rect x="264" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L2 head 9: +0.6 points when switched off</title></rect>
+<rect x="290" y="254" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L2 head 10: -0.1 points when switched off</title></rect>
+<rect x="316" y="254" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L2 head 11: +0.3 points when switched off</title></rect>
+<text x="24" y="297.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L1</text>
+<rect x="30" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L1 head 0: +0.1 points when switched off</title></rect>
+<rect x="56" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L1 head 1: -0.4 points when switched off</title></rect>
+<rect x="82" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L1 head 2: -0.1 points when switched off</title></rect>
+<rect x="108" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L1 head 3: -0.1 points when switched off</title></rect>
+<rect x="134" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.03" stroke="currentColor" stroke-opacity=".15"><title>L1 head 4: +0.4 points when switched off</title></rect>
+<rect x="160" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.04" stroke="currentColor" stroke-opacity=".15"><title>L1 head 5: +0.6 points when switched off</title></rect>
+<rect x="186" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L1 head 6: -0.3 points when switched off</title></rect>
+<rect x="212" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L1 head 7: +0.7 points when switched off</title></rect>
+<rect x="238" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L1 head 8: +0.0 points when switched off</title></rect>
+<rect x="264" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L1 head 9: -0.1 points when switched off</title></rect>
+<rect x="290" y="280" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L1 head 10: -0.3 points when switched off</title></rect>
+<rect x="316" y="280" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.05" stroke="currentColor" stroke-opacity=".15"><title>L1 head 11: +0.7 points when switched off</title></rect>
+<text x="24" y="323.0" text-anchor="end" font-size="10" fill="currentColor" opacity=".6">L0</text>
+<rect x="30" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 0: +0.2 points when switched off</title></rect>
+<rect x="56" y="306" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.06" stroke="currentColor" stroke-opacity=".15"><title>L0 head 1: -0.9 points when switched off</title></rect>
+<rect x="82" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 2: +0.1 points when switched off</title></rect>
+<rect x="108" y="306" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 3: -0.1 points when switched off</title></rect>
+<rect x="134" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L0 head 4: +0.0 points when switched off</title></rect>
+<rect x="160" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 5: +0.2 points when switched off</title></rect>
+<rect x="186" y="306" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 6: -0.2 points when switched off</title></rect>
+<rect x="212" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.02" stroke="currentColor" stroke-opacity=".15"><title>L0 head 7: +0.3 points when switched off</title></rect>
+<rect x="238" y="306" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 8: -0.2 points when switched off</title></rect>
+<rect x="264" y="306" width="24" height="24" rx="3" fill="#d9632b" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 9: -0.1 points when switched off</title></rect>
+<rect x="290" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.00" stroke="currentColor" stroke-opacity=".15"><title>L0 head 10: +0.0 points when switched off</title></rect>
+<rect x="316" y="306" width="24" height="24" rx="3" fill="#2a5bd7" fill-opacity="0.01" stroke="currentColor" stroke-opacity=".15"><title>L0 head 11: +0.2 points when switched off</title></rect>
+</svg><figcaption>Change in attacked accuracy when a single head is switched off. Full blue is +14.3 points (L11 head 8). Last layer at the top.</figcaption></figure>
+<p>Projecting that head's output onto the class names shows it pushes the answer toward the word written on the image more strongly than any other head. This is a rough, direct-effect estimate and should be read as a hint, not proof.</p>
+<hr>
+<h2>Try 3: really write new values</h2>
+<p>Switching things off is a weak form of "programming". So we ran four more agents under a rule that forced them to write <i>new</i> numbers:</p>
+<table><tr><th>Edit</th><th>Clean acc.</th><th>Attacked acc.</th></tr><tr><td>New neuron pathway (detector + correction, 196,736 new numbers, no zeros)</td><td>62.77</td><td>41.08</td></tr><tr><td>Heads off + average output written into a bias</td><td>62.65</td><td>41.60</td></tr><tr><td>Rewrite where the heads look</td><td>62.53</td><td>40.74</td></tr><tr><td>Rewrite head output with a computed matrix</td><td>62.54</td><td>40.18</td></tr><tr class="hl"><td>(For reference) two heads switched off</td><td>62.76</td><td>42.41</td></tr></table>
+<p>Writing new values got close but did not beat switching off. In these heads the written-word signal is spread over about 48 to 64 of the 64 directions, so a precise cancel-out needs nearly the whole head. One fault, one model, and a small budget do not show that writing can never help.</p>
+<hr>
+<h2>An editor UI</h2>
+<p>To help a person decide <i>what</i> to edit, the repo includes a local app (<code>ui/</code>): a 12×12 map of heads coloured by measured effect, an inspector that shows where a head looks and which words it pushes toward, and a chat box where Claude proposes an edit that is applied and scored live on held-out images. In a test, Claude's eight-head proposal reached 49.7% attacked accuracy but lowered clean accuracy from 65.1% to 62.6%, which is why every proposal is scored for real.</p>
+<hr>
+<h2>How this relates to Dyslexify</h2>
+<p>This is <b>not a new defense</b>. <a href="https://hufe.info/dyslexify/">Dyslexify</a> (Hufe et al., ICLR 2026) already showed that a small set of late-layer attention heads carries written text into CLIP's CLS token and that ablating them restores accuracy. Our fix is the same idea. Differences, as far as we can tell from their public summary: they rank heads with a Typographic Attention Score and probes and zero only the CLS update, while we zero a head's output for all tokens and found the heads through agent search and a switch-off map. Our attack and benchmark also differ (full ImageNet, our own text style versus their typographic ImageNet-100), so numbers are not directly comparable. We have not run their method on our attack.</p>
+<hr>
+<h2>Limits</h2>
+<ul><li>One model (B/32), one attack style (white box, black text), one dataset. We have not tested other fonts, scene text, ImageNet-A/R/Sketch, or other CLIP models.</li>
+<li>Each agent was run once, so differences of a point or so between agents are not reliable.</li>
+<li>The search used a shared GPU; two agents hit out-of-memory errors near the end, and one agent's saved file was never re-scored by the agent itself, so its numbers come from our grader.</li>
+<li>We did not compare against fine-tuning baselines.</li></ul>
+<hr>
+<h2>Reproduce</h2>
+<pre>git clone https://github.com/tinxai/llm_edit_clip &amp;&amp; cd llm_edit_clip
+export IMAGENET_VAL=... IMAGENET_TRAIN=...
+python cache_feats.py && python build_typo.py        # caches and attacked train splits
+PYTHONPATH=. python eval_typo.py heads               # grade an agent's submission
+python ui/precompute.py &amp;&amp; PORT=8791 python ui/server.py   # the editor UI</pre>
+<p class="note">Layout inspired by the Dyslexify project page. Experiments were run with Claude and Codex agents; the write-up was drafted with Claude.</p>
+</main></body></html>

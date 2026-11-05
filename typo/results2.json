@@ -1,0 +1,66 @@
+{
+ "original": {
+  "TB_clean": 65.10000000000001,
+  "TB_attacked": 26.775,
+  "tensors": [],
+  "entries_changed": 0,
+  "entries_set_to_zero": 0,
+  "val_clean": 63.339999999999996,
+  "val_attacked": 26.93
+ },
+ "pathway": {
+  "TB_clean": 64.64999999999999,
+  "TB_attacked": 41.175,
+  "tensors": [
+   "vision_model.encoder.layers.11.mlp.fc1.weight",
+   "vision_model.encoder.layers.11.mlp.fc1.bias",
+   "vision_model.encoder.layers.11.mlp.fc2.weight"
+  ],
+  "entries_changed": 196736,
+  "entries_set_to_zero": 0,
+  "val_clean": 62.766,
+  "val_attacked": 41.08
+ },
+ "bias": {
+  "TB_clean": 64.95,
+  "TB_attacked": 41.875,
+  "tensors": [
+   "vision_model.encoder.layers.8.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.8.self_attn.out_proj.bias",
+   "vision_model.encoder.layers.11.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.11.self_attn.out_proj.bias"
+  ],
+  "entries_changed": 99840,
+  "entries_set_to_zero": 98304,
+  "val_clean": 62.648,
+  "val_attacked": 41.6
+ },
+ "attn": {
+  "TB_clean": 64.525,
+  "TB_attacked": 40.875,
+  "tensors": [
+   "vision_model.encoder.layers.8.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.8.self_attn.out_proj.bias",
+   "vision_model.encoder.layers.11.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.11.self_attn.out_proj.bias"
+  ],
+  "entries_changed": 99840,
+  "entries_set_to_zero": 98304,
+  "val_clean": 62.52799999999999,
+  "val_attacked": 40.739999999999995
+ },
+ "free": {
+  "TB_clean": 64.5,
+  "TB_attacked": 40.525,
+  "tensors": [
+   "vision_model.encoder.layers.8.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.8.self_attn.out_proj.bias",
+   "vision_model.encoder.layers.11.self_attn.out_proj.weight",
+   "vision_model.encoder.layers.11.self_attn.out_proj.bias"
+  ],
+  "entries_changed": 99840,
+  "entries_set_to_zero": 0,
+  "val_clean": 62.53999999999999,
+  "val_attacked": 40.18
+ }
+}

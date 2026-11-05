@@ -1,0 +1,38 @@
+{
+ "original": {
+  "B": 64.98000025749207,
+  "tensors": [],
+  "entries_changed": 0,
+  "val": 63.339999999999996
+ },
+ "heads": {
+  "B": 65.05999565124512,
+  "tensors": [
+   "vision_model.encoder.layers.3.self_attn.out_proj.weight"
+  ],
+  "entries_changed": 49152,
+  "val": 63.284
+ },
+ "mlp": {
+  "B": 64.91999626159668,
+  "tensors": [
+   "vision_model.encoder.layers.7.mlp.fc2.weight"
+  ],
+  "entries_changed": 768,
+  "val": 63.31
+ },
+ "norms": {
+  "B": 65.35999774932861,
+  "tensors": [
+   "visual_projection.weight"
+  ],
+  "entries_changed": 393215,
+  "val": 63.492000000000004
+ },
+ "free": {
+  "B": 64.98000025749207,
+  "tensors": [],
+  "entries_changed": 0,
+  "val": 63.339999999999996
+ }
+}

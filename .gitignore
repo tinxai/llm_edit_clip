@@ -1,0 +1,6 @@
+__pycache__/
+*.pt
+*.log
+nohup.out
+typo/TA.pt
+typo/TB.pt

@@ -1,0 +1,101 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CLIP Weight Editor</title>
+<style>
+:root{--bg:#fbfaf7;--card:#fff;--ink:#1f2328;--ink2:#555b63;--mut:#8a9099;--line:#e3e1db;--accent:#2a5bd7;--gain:#2a5bd7;--loss:#d9632b;--good:#1a7f4b;--bad:#c0392b}
+@media (prefers-color-scheme:dark){:root{--bg:#16171a;--card:#1f2024;--ink:#e8e8ea;--ink2:#b5b8bd;--mut:#80848b;--line:#33353b;--accent:#7aa2ff;--gain:#6c97ff;--loss:#ef8a55;--good:#4cc38a;--bad:#ff7b6b}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,sans-serif}
+header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:24px;flex-wrap:wrap;align-items:baseline}
+h1{font-size:18px;margin:0}h2{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2)}
+.sub{color:var(--ink2)}main{display:grid;grid-template-columns:minmax(330px,1fr) minmax(330px,1.1fr) minmax(300px,1fr);gap:16px;padding:16px 20px}
+@media(max-width:1000px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+.seg{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}.seg button{border:1px solid var(--line);background:none;color:var(--ink);padding:4px 9px;border-radius:14px;cursor:pointer;font:inherit;font-size:12.5px}
+.seg button.on{background:var(--accent);color:#fff;border-color:var(--accent)}
+.grid{display:grid;grid-template-columns:28px repeat(12,1fr) 1.3fr;gap:2px;font-size:10.5px;color:var(--mut)}
+.cell{aspect-ratio:1;border-radius:3px;cursor:pointer;border:1.5px solid transparent;position:relative}.cell.m{aspect-ratio:auto}
+.cell.sel{border-color:var(--ink)}.cell.ed::after{content:"✕";position:absolute;inset:0;display:grid;place-items:center;color:#000;font-size:11px;mix-blend-mode:normal;text-shadow:0 0 2px #fff}
+.lab{display:grid;place-items:center}
+.legend{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:12px;color:var(--ink2)}.legend i{display:inline-block;width:120px;height:8px;border-radius:4px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 12px;margin:8px 0}.kv b{font-variant-numeric:tabular-nums}
+.thumbs{display:flex;gap:6px;margin:8px 0}.thumbs img{width:52px;height:52px;object-fit:cover;border-radius:5px;cursor:pointer;border:2px solid transparent}.thumbs img.on{border-color:var(--accent)}
+.imgbox{position:relative;width:224px;height:224px}.imgbox img{width:224px;height:224px;border-radius:6px;display:block}.heat{position:absolute;inset:0;display:grid;grid-template-columns:repeat(7,1fr);grid-template-rows:repeat(7,1fr)}
+.row{display:flex;gap:14px;flex-wrap:wrap}.words span{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--bg);border:1px solid var(--line);margin:2px 3px 2px 0;font-size:12.5px}.words span.hit{border-color:var(--loss);color:var(--loss);font-weight:600}
+button.act{background:var(--accent);color:#fff;border:0;padding:6px 11px;border-radius:7px;cursor:pointer;font:inherit}button.sec{background:none;border:1px solid var(--line);color:var(--ink);padding:6px 11px;border-radius:7px;cursor:pointer;font:inherit}
+.edit{display:flex;justify-content:space-between;align-items:center;padding:5px 8px;border:1px solid var(--line);border-radius:6px;margin:4px 0}.edit button{border:0;background:none;color:var(--mut);cursor:pointer;font-size:15px}
+.score{display:grid;grid-template-columns:1fr auto auto auto;gap:4px 12px;font-variant-numeric:tabular-nums;margin:8px 0}.score .h{color:var(--mut);font-size:12px}
+.up{color:var(--good);font-weight:600}.dn{color:var(--bad);font-weight:600}
+#log{max-height:200px;overflow:auto;margin:8px 0}.msg{margin:6px 0;padding:7px 10px;border-radius:8px;background:var(--bg);border:1px solid var(--line)}.msg.u{background:var(--accent);color:#fff;border:0}
+textarea{width:100%;font:inherit;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:7px;padding:7px;resize:vertical}
+.note{font-size:12px;color:var(--mut);margin-top:6px}
+</style></head><body>
+<header><h1>CLIP Weight Editor</h1><span class="sub">Click a part of the model to see what it does. Switch it off or turn it down, and watch the score change on images the edit has never seen.</span></header>
+<main>
+<section class="card"><h2>1 · Model map</h2>
+ <div class="seg" id="metric"></div>
+ <div class="grid" id="grid"></div>
+ <div class="legend" id="legend"></div>
+ <div class="note">Rows are layers (top = last layer). Columns are the 12 attention heads and, on the right, the MLP block of that layer. Numbers come from switching one part off at a time on 1,000 search images. ✕ = part is edited.</div>
+</section>
+<section class="card"><h2>2 · What this part does</h2><div id="insp"><div class="sub">Click a cell on the map.</div></div></section>
+<section class="card"><h2>3 · Edits and score</h2>
+ <div id="edits"></div>
+ <div class="score" id="score"></div>
+ <div class="note" id="scorenote">Scored on 4,000 held-out images (never used to colour the map).</div>
+ <h2 style="margin-top:16px">Ask the assistant</h2>
+ <div id="log"></div>
+ <textarea id="msg" rows="2" placeholder="e.g. Make the model stop being fooled by words written on the image"></textarea>
+ <div style="margin-top:6px;display:flex;gap:8px"><button class="act" id="send">Propose edit</button><button class="sec" id="clear">Undo all</button></div>
+ <div class="note">The assistant is Claude run from your terminal. It only sees the table of measured effects, and its edits are applied and scored for real.</div>
+</section>
+</main>
+<script>
+let D,base,sel=null,ops=[],metric='gain',exi=0;
+const $=id=>document.getElementById(id), key=(l,h)=>h==='m'?`M${l}`:`H${l}.${h}`;
+const METRICS={gain:'Switch-off gain (attacked)',cost:'Switch-off cost (clean)',read:'Reads written words'};
+function val(k,l,h){const s=D.scan[k];if(metric==='gain')return s[0]-D.base[0];if(metric==='cost')return s[1]-D.base[1];return h==='m'?null:D.readout[l][h];}
+function color(v,mx){if(v===null)return 'var(--line)';const t=Math.min(1,Math.abs(v)/mx);const c=(metric==='read'||metric==='gain'||v>0)?(v>=0?'var(--gain)':'var(--loss)'):'var(--loss)';return `color-mix(in srgb, ${c} ${Math.round(t*100)}%, var(--card))`}
+function draw(){
+ const g=$('grid');g.innerHTML='';let all=[];for(let l=0;l<12;l++)for(const h of [...Array(12).keys(),'m']){const v=val(key(l,h),l,h);if(v!==null)all.push(Math.abs(v))}
+ all.sort((a,b)=>a-b);const mx=all[Math.floor(all.length*0.98)]||1;
+ g.appendChild(Object.assign(document.createElement('div'),{}));for(let h=0;h<12;h++){const d=document.createElement('div');d.className='lab';d.textContent=h;g.appendChild(d)}g.appendChild(Object.assign(document.createElement('div'),{className:'lab',textContent:'MLP'}));
+ for(let l=11;l>=0;l--){g.appendChild(Object.assign(document.createElement('div'),{className:'lab',textContent:'L'+l}));
+  for(const h of [...Array(12).keys(),'m']){const k=key(l,h),v=val(k,l,h),d=document.createElement('div');d.className='cell'+(h==='m'?' m':'')+(sel&&sel.k===k?' sel':'')+(ops.some(o=>o.type===(h==='m'?'mlp':'head')&&o.layer==l&&(h==='m'||o.head==h))?' ed':'');
+   d.style.background=color(v,mx);d.title=k+(v!==null?`: ${v>=0?'+':''}${v.toFixed(2)}`:'');d.onclick=()=>{sel={k,l,h};draw();inspect()};g.appendChild(d)}}
+ $('metric').innerHTML='';for(const m in METRICS){const b=document.createElement('button');b.textContent=METRICS[m];b.className=m===metric?'on':'';b.onclick=()=>{metric=m;draw()};$('metric').appendChild(b)}
+ const lg={gain:['hurts attacked acc','helps'],cost:['costs clean acc','gains'],read:['pushes away from written word','pushes toward written word']}[metric];
+ $('legend').innerHTML=`<span>${lg[1]==='helps'||lg[1]==='pushes toward written word'?'':''}</span><span style="color:var(--loss)">◀ ${metric==='cost'?'loses clean':lg[0]}</span><i style="background:linear-gradient(90deg,var(--loss),var(--card),var(--gain))"></i><span style="color:var(--gain)">${metric==='cost'?'gains clean':lg[1]} ▶</span><span>(full colour = ±${mx.toFixed(1)})</span>`;
+}
+function heat(a){const t=Math.max(...a);return a.map(v=>`<div style="background:rgba(255,40,40,${(v/t*0.75).toFixed(2)})"></div>`).join('')}
+function inspect(){
+ if(!sel)return;const {k,l,h}=sel,s=D.scan[k],isH=h!=='m',e=D.examples[exi];
+ let html=`<h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--ink)">${isH?`Layer ${l}, head ${h}`:`Layer ${l} MLP block`}</h2>
+ <div class="kv"><span>Switch it off → attacked acc</span><b>${s[0].toFixed(1)}% <span class="${s[0]>D.base[0]?'up':'dn'}">(${(s[0]-D.base[0]>=0?'+':'')}${(s[0]-D.base[0]).toFixed(1)})</span></b>
+ <span>Switch it off → clean acc</span><b>${s[1].toFixed(1)}% <span class="${s[1]>=D.base[1]-0.3?'up':'dn'}">(${(s[1]-D.base[1]>=0?'+':'')}${(s[1]-D.base[1]).toFixed(1)})</span></b>
+ ${isH?`<span>Pushes toward written word</span><b>${D.readout[l][h].toFixed(2)} <span class="sub">(typical head ≈ 0)</span></b>`:''}</div>`;
+ if(isH){html+=`<div class="sub">Example image (pick one):</div><div class="thumbs">${D.examples.map((x,i)=>`<img src="img/ex${i}_att.png" class="${i===exi?'on':''}" onclick="exi=${i};inspect()">`).join('')}</div>
+ <div class="row"><div><div class="sub">Where the head looks (red = more)</div><div class="imgbox"><img src="img/ex${exi}_att.png"><div class="heat">${heat(e.attn[l][h])}</div></div></div>
+ <div style="flex:1;min-width:150px"><div class="sub">Words this head pushes the answer toward</div><div class="words">${e.words[l+'.'+h].map(w=>`<span class="${w===e.typed?'hit':''}">${w}</span>`).join('')}</div>
+ <div class="kv"><span>Written on image</span><b style="color:var(--loss)">${e.typed}</b><span>True class</span><b>${e.true}</b></div>
+ <div class="note">Orange word = the one written on the picture. If it shows up, this head is reading the text.</div></div></div>`}
+ else html+=`<div class="note">MLP blocks mix information inside each layer; this tool only shows how much the score depends on them.</div>`;
+ const isEd=ops.some(o=>o.type===(isH?'head':'mlp')&&o.layer==l&&(!isH||o.head==h));
+ html+=`<div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="act" onclick="addOp('zero')">Switch off</button><button class="sec" onclick="addOp('scale',0.5)">Turn down to half</button>${isEd?'<button class="sec" onclick="rmOp()">Remove edit</button>':''}</div>`;
+ $('insp').innerHTML=html;}
+function same(o){return o.type===(sel.h==='m'?'mlp':'head')&&o.layer==sel.l&&(sel.h==='m'||o.head==sel.h)}
+function addOp(mode,value){ops=ops.filter(o=>!same(o));ops.push(sel.h==='m'?{type:'mlp',layer:sel.l,mode,value}:{type:'head',layer:sel.l,head:sel.h,mode,value});changed()}
+function rmOp(){ops=ops.filter(o=>!same(o));changed()}
+function name(o){return (o.type==='head'?`L${o.layer} head ${o.head}`:`L${o.layer} MLP`)+(o.mode==='zero'?' → off':` → ×${o.value}`)}
+function renderEdits(){$('edits').innerHTML=ops.length?ops.map((o,i)=>`<div class="edit"><span>${name(o)}</span><button onclick="ops.splice(${i},1);changed()">✕</button></div>`).join(''):'<div class="sub">No edits yet — the model is the original.</div>'}
+let cur=null,tk=0;
+async function rescore(){const t=++tk;$('score').innerHTML='<span class="sub">scoring…</span>';
+ const r=await (await fetch('/score',{method:'POST',body:JSON.stringify({ops})})).json();if(t!==tk)return;cur=r;showScore()}
+function d(a,b,hi){const x=a-b;return `<span class="${Math.abs(x)<0.3?'sub':(x>0?'up':'dn')}">${x>=0?'+':''}${x.toFixed(1)}</span>`}
+function showScore(){const c=cur||base;$('score').innerHTML=`<span class="h"></span><span class="h">original</span><span class="h">edited</span><span class="h">change</span>
+<span>Attacked images</span><b>${base.attacked.toFixed(1)}%</b><b>${c.attacked.toFixed(1)}%</b>${d(c.attacked,base.attacked)}
+<span>Clean images</span><b>${base.clean.toFixed(1)}%</b><b>${c.clean.toFixed(1)}%</b>${d(c.clean,base.clean)}`}
+function changed(){renderEdits();draw();inspect();if(ops.length)rescore();else{cur=null;showScore()}}
+$('clear').onclick=()=>{ops=[];changed()};
+function addMsg(t,u){const m=document.createElement('div');m.className='msg'+(u?' u':'');m.textContent=t;$('log').appendChild(m);$('log').scrollTop=1e9;return m}
+$('send').onclick=async()=>{const t=$('msg').value.trim();if(!t)return;addMsg(t,1);$('msg').value='';const w=addMsg('thinking…');$('send').disabled=true;
+ try{const r=await (await fetch('/chat',{method:'POST',body:JSON.stringify({message:t,ops})})).json();w.textContent=r.error?('Error: '+r.error):r.reply;if(r.ops){ops=r.ops.map(o=>({...o}));changed()}}catch(e){w.textContent='Error: '+e}$('send').disabled=false};
+(async()=>{D=await (await fetch('data.json')).json();base=await (await fetch('base')).json();draw();renderEdits();showScore()})();
+</script></body></html>
