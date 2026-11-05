@@ -18,6 +18,7 @@ pre{background:var(--card);padding:12px 14px;border-radius:6px;overflow:auto;fon
 </style></head><body><main>
 <h1>LLM-Edited CLIP</h1>
 <p class="sub">Claude agents rewrite CLIP's weights by hand, with no training, to resist typographic attacks</p>
+<p class="sub" style="font-size:16px;margin-bottom:10px"><b>Tin Nguyen</b> · <a href="mailto:ngthanhtinqn@gmail.com">ngthanhtinqn@gmail.com</a></p>
 <p class="links"><a href="https://github.com/tinxai/llm_edit_clip">Code</a><a href="https://hufe.info/dyslexify/">Related: Dyslexify</a><a href="https://rikiyat.github.io/blog/weight-space-programming/">Inspiration: Weight-Space Programming</a></p>
 <div class="tldr"><b>TL;DR</b> We asked LLM agents to edit the weights of CLIP ViT-B/32 directly (no gradients, a small budget of test runs). On normal ImageNet they found <b>nothing</b>. When we pointed them at one specific weakness, words written on pictures, they found a two-head edit that lifts accuracy on attacked images from <b>26.9% to 42.4%</b> at a cost of about 0.6 points on clean images. This is a known kind of fix; we reproduce it and add an editor UI.</div>
 <hr>
